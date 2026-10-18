@@ -99,6 +99,19 @@ button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-vis
 .rates button{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-size:15px;font-variant-numeric:tabular-nums}
 .rates button.on{background:var(--accent);border-color:var(--accent);color:#fff}
 .steps{margin:0;padding-inline-start:20px;display:flex;flex-direction:column;gap:8px;font-size:15px;line-height:1.5;color:var(--fg)}
+#cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);z-index:0;background:#000}
+#prompter.rec #pane,#prompter.rec #below{position:relative;z-index:1}
+#prompter.rec #pane{background:linear-gradient(to bottom,rgba(0,0,0,.72),rgba(0,0,0,.5))}
+#prompter.rec #text .w{text-shadow:0 1px 3px rgba(0,0,0,.6)}
+#recBadge{position:fixed;z-index:2;inset-inline-start:max(14px,env(safe-area-inset-left));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 92px);
+  display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.55);border-radius:999px;padding:5px 10px;font-size:14px;font-variant-numeric:tabular-nums}
+#recBadge .dot{width:9px;height:9px;border-radius:50%;background:#ff2d55}
+#count{position:fixed;z-index:2;inset:0;display:grid;place-items:center;font-size:120px;font-weight:800;color:#fff;text-shadow:0 2px 12px rgba(0,0,0,.6);pointer-events:none}
+#go.recording{background:#ff2d55;box-shadow:0 0 0 6px rgba(255,45,85,.25)}
+#saveSheet{display:flex;flex-direction:column;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px}
+#saveSheet video{width:100%;max-height:40vh;border-radius:10px;background:#000}
+#saveSheet .bar .primary{flex:1;padding:12px}
+#dl{color:var(--fg);text-align:center}
 #speedRow{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
 #speedRow input{flex:1;accent-color:var(--accent)}
 </style>
@@ -116,6 +129,7 @@ button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-vis
       <label for="mode">מצב גלילה</label>
       <select id="mode">
         <option value="voice">עוקב אחרי הקול</option>
+        <option value="record">הקלטה עם טלפרומפטר</option>
         <option value="float">חלון צף מעל המצלמה</option>
         <option value="auto">גלילה במהירות קבועה</option>
       </select>
@@ -136,15 +150,15 @@ button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-vis
       <label for="lines">שורות בחלון</label>
       <div class="row"><input type="range" id="lines" min="2" max="5" step="1"><output id="linesOut"></output></div>
     </div>
-    <div class="field" data-for="voice auto">
+    <div class="field" data-for="voice auto record">
       <label for="size">גודל טקסט</label>
       <div class="row"><input type="range" id="size" min="22" max="72" step="2"><output id="sizeOut"></output></div>
     </div>
-    <div class="field" data-for="voice auto">
+    <div class="field" data-for="voice auto record">
       <label for="height">גובה אזור הטקסט</label>
       <div class="row"><input type="range" id="height" min="20" max="70" step="5"><output id="heightOut"></output></div>
     </div>
-    <div class="field" data-for="voice auto">
+    <div class="field" data-for="voice auto record">
       <label for="margin">שוליים צדדיים</label>
       <div class="row"><input type="range" id="margin" min="8" max="80" step="4"><output id="marginOut"></output></div>
     </div>
@@ -154,6 +168,7 @@ button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-vis
     </div>
   </div>
   <button class="primary" id="start" type="button">פתח טלפרומפטר</button>
+  <p class="note" data-for="record">המצלמה הקדמית נפתחת בתוך הדף והטקסט גולל מעליה, צמוד לעדשה. לוחצים הקלטה, הטקסט מתחיל לזוז אחרי ספירה לאחור, ובסוף שומרים את הסרטון לתמונות. הטקסט לא מופיע בסרטון. את המהירות אפשר לשנות גם תוך כדי הקלטה.</p>
   <p class="note" data-for="float">במצב חלון צף הטקסט הופך לסרטון גלילה בקצב שבחרת. מפעילים אותו כחלון "תמונה בתוך תמונה", גוררים אותו לראש המסך ליד המצלמה, ופותחים את אפליקציית המצלמה. בחלון אפשר לעצור, להמשיך ולקפוץ אחורה.</p>
   <p class="note" data-for="voice auto">הטקסט מוצג צמוד לחלק העליון של המסך, ממש מתחת למצלמה הקדמית. במצב קול הוא מתקדם לפי המילים שאתה אומר, ואם תדלג או תאלתר הוא ימצא אותך כשתחזור לטקסט. נגיעה במילה מעבירה את נקודת הקריאה אליה.</p>
 </section>
@@ -186,6 +201,9 @@ button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-vis
 </section>
 
 <section id="prompter" hidden>
+  <video id="cam" playsinline muted autoplay hidden></video>
+  <div id="recBadge" hidden><span class="dot"></span><span id="recTime">0:00</span></div>
+  <div id="count" hidden></div>
   <div id="pane"><div id="text"></div></div>
   <div id="below">
     <div id="heard"></div>
@@ -193,7 +211,15 @@ button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-vis
     <div id="speedRow" hidden>
       <span>מהירות</span><input type="range" id="speed" min="10" max="160" step="5" aria-label="מהירות גלילה">
     </div>
-    <div class="bar">
+    <div id="saveSheet" hidden>
+      <video id="take" playsinline controls></video>
+      <div class="bar">
+        <button class="ghost" id="retake" type="button">הקלט שוב</button>
+        <button class="primary" id="saveTake" type="button">שמור לתמונות</button>
+      </div>
+      <a id="dl" class="note" hidden>הורדת הקובץ</a>
+    </div>
+    <div class="bar" id="mainBar">
       <button class="round" id="back" type="button" aria-label="חזרה לעריכה"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
       <button class="round" id="smaller" type="button" aria-label="הקטן טקסט">א-</button>
       <button id="go" type="button" aria-label="התחל"><svg viewBox="0 0 24 24" id="goIcon"></svg></button>
@@ -218,7 +244,7 @@ const store = {
 
 const S = {
   script: store.get('script', SAMPLE),
-  mode: store.get('mode','float'),
+  mode: store.get('mode','record'),
   lang: store.get('lang','he-IL'),
   size: store.get('size',38),
   height: store.get('height',40),
@@ -279,6 +305,7 @@ function applyLayout(){
   pane.style.height=`calc(${S.height}vh + env(safe-area-inset-top))`;
   textEl.style.transform=tf();
 }
+const scrolling=()=>S.mode==='auto'||S.mode==='record';
 const tf=()=>`translateY(${-offset}px)`+(S.mirror?' scaleX(-1)':'');
 
 // Keep the current word on the first reading line, right under the camera
@@ -404,13 +431,16 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 // ---------- Prompter controls ----------
 const ICON_PLAY='<path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/>';
 const ICON_AUTO='<path d="M8 5l11 7-11 7z"/>';
+const ICON_REC='<circle cx="12" cy="12" r="6" fill="currentColor"/>';
 const ICON_STOP='<rect x="6" y="6" width="12" height="12" rx="2"/>';
 function updateGo(){
   $('#go').classList.toggle('live',running);
-  $('#goIcon').innerHTML = running?ICON_STOP:(S.mode==='voice'?ICON_PLAY:ICON_AUTO);
+  $('#goIcon').innerHTML = running?ICON_STOP:(S.mode==='voice'?ICON_PLAY:S.mode==='record'?ICON_REC:ICON_AUTO);
+  $('#go').classList.toggle('recording',S.mode==='record'&&running);
   $('#go').setAttribute('aria-label',running?'עצור':'התחל');
 }
 function toggleRun(){
+  if(S.mode==='record'){toggleRecord();return}
   if(running){
     running=false; stopVoice(); cancelAnimationFrame(raf); release();
     setStatus('מושהה. לחץ כדי להמשיך.');
@@ -424,17 +454,21 @@ function toggleRun(){
 
 $('#start').addEventListener('click',()=>{
   if(S.mode==='float'){openFloat();return}
+  $('#prompter').classList.toggle('rec',S.mode==='record');
+  $('#saveSheet').hidden=true; $('#mainBar').hidden=false; $('#recBadge').hidden=true; $('#pane').hidden=false;
   build(); applyLayout();
   $('#editor').hidden=true; $('#prompter').hidden=false;
-  textEl.classList.toggle('auto',S.mode==='auto');
-  $('#speedRow').hidden=S.mode!=='auto';
+  textEl.classList.toggle('auto',scrolling());
+  $('#speedRow').hidden=!scrolling();
   $('#heard').textContent='';
-  setStatus(S.mode==='voice'?'לחץ על המיקרופון והתחל לדבר.':'לחץ על הפליי כדי להתחיל לגלול.');
+  setStatus(S.mode==='voice'?'לחץ על המיקרופון והתחל לדבר.':S.mode==='record'?'':'לחץ על הפליי כדי להתחיל לגלול.');
+  if(S.mode==='record') openCamera();
   running=false; updateGo();
   requestAnimationFrame(render);
 });
 $('#back').addEventListener('click',()=>{
   if(running) toggleRun();
+  closeCamera();
   $('#prompter').hidden=true; $('#editor').hidden=false;
 });
 $('#go').addEventListener('click',toggleRun);
@@ -450,13 +484,13 @@ textEl.addEventListener('click',e=>{
   const i=+w.dataset.i;
   let k=M.findIndex(m=>m>=i); if(k<0) k=M.length;
   pos=k; lastTail='';
-  if(S.mode==='auto'){ offset=Math.max(0,w.offsetTop-S.size*1.35*0.6); textEl.style.transform=tf() }
+  if(scrolling()){ offset=Math.max(0,w.offsetTop-S.size*1.35*0.6); textEl.style.transform=tf() }
   else render();
 });
 
 // Drag to nudge the text in auto mode
 let dragY=null;
-pane.addEventListener('touchstart',e=>{if(S.mode==='auto')dragY=e.touches[0].clientY},{passive:true});
+pane.addEventListener('touchstart',e=>{if(scrolling())dragY=e.touches[0].clientY},{passive:true});
 pane.addEventListener('touchmove',e=>{if(dragY!==null){const y=e.touches[0].clientY;offset=Math.max(0,offset-(y-dragY));dragY=y;textEl.style.transform=tf()}},{passive:true});
 pane.addEventListener('touchend',()=>{dragY=null});
 
@@ -617,6 +651,87 @@ $('#flBack').addEventListener('click',()=>{
   flJob++; const v=$('#flVideo'); try{v.pause()}catch(e){}
   try{ if(document.pictureInPictureElement) document.exitPictureInPicture() }catch(e){}
   $('#floater').hidden=true; $('#editor').hidden=false;
+});
+
+// ---------- In-page camera recording ----------
+let camStream=null, recorder=null, chunks=[], recStart=0, recTimer=0, countTimer=0, takeFile=null;
+const REC_HINT='לחץ על כפתור ההקלטה. הטקסט יתחיל לזוז אחרי 3 שניות.';
+async function openCamera(){
+  const cam=$('#cam');
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){setStatus('הדפדפן לא מאפשר גישה למצלמה. פתח את הדף ב Safari.',true);return}
+  setStatus('פותח מצלמה...');
+  try{
+    camStream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:'user',width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},
+      audio:{echoCancellation:true,noiseSuppression:true}
+    });
+    cam.srcObject=camStream; cam.hidden=false; try{await cam.play()}catch(e){}
+    setStatus(REC_HINT);
+  }catch(e){
+    setStatus('אין גישה למצלמה או למיקרופון. אשר גישה ב Safari (סמל aA בשורת הכתובת, הגדרות אתר) ולחץ שוב על כפתור ההקלטה.',true);
+  }
+}
+function closeCamera(){
+  clearInterval(recTimer); clearTimeout(countTimer);
+  if(recorder&&recorder.state!=='inactive'){recorder.onstop=null;try{recorder.stop()}catch(e){}}
+  if(camStream) camStream.getTracks().forEach(t=>t.stop());
+  camStream=null; recorder=null; $('#cam').hidden=true; $('#cam').srcObject=null;
+  $('#recBadge').hidden=true; $('#count').hidden=true;
+}
+function pickType(){
+  const types=['video/mp4;codecs=avc1.640028,mp4a.40.2','video/mp4;codecs=avc1,mp4a','video/mp4','video/webm;codecs=vp9,opus','video/webm'];
+  return types.find(t=>window.MediaRecorder&&MediaRecorder.isTypeSupported(t))||'';
+}
+function toggleRecord(){
+  if(!camStream){openCamera();return}
+  if(running){
+    running=false; cancelAnimationFrame(raf); release(); clearInterval(recTimer); clearTimeout(countTimer);
+    $('#count').hidden=true;
+    if(recorder&&recorder.state!=='inactive') recorder.stop();
+    updateGo(); return;
+  }
+  const type=pickType();
+  if(!type){setStatus('הדפדפן לא תומך בהקלטת וידאו.',true);return}
+  chunks=[];
+  try{ recorder=new MediaRecorder(camStream,{mimeType:type,videoBitsPerSecond:8000000,audioBitsPerSecond:128000}) }
+  catch(e){ recorder=new MediaRecorder(camStream) }
+  recorder.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
+  recorder.onstop=finishTake;
+  recorder.start(1000);
+  running=true; keepAwake(); updateGo(); setStatus('');
+  recStart=Date.now(); $('#recBadge').hidden=false; $('#recTime').textContent='0:00';
+  recTimer=setInterval(()=>{const s=Math.floor((Date.now()-recStart)/1000);$('#recTime').textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0')},250);
+  // countdown, then scroll
+  let n=3; const c=$('#count'); c.hidden=false; c.textContent=n;
+  const step=()=>{ n--; if(!running){c.hidden=true;return}
+    if(n>0){c.textContent=n;countTimer=setTimeout(step,1000)}
+    else {c.hidden=true; textEl.classList.add('auto'); lastT=0; raf=requestAnimationFrame(autoLoop)} };
+  countTimer=setTimeout(step,1000);
+}
+function finishTake(){
+  $('#recBadge').hidden=true;
+  const type=(recorder&&recorder.mimeType)||(chunks[0]&&chunks[0].type)||'video/mp4';
+  const blob=new Blob(chunks,{type});
+  const ext=type.includes('webm')?'webm':'mp4';
+  const d=new Date(), p2=n=>String(n).padStart(2,'0');
+  takeFile=new File([blob],`prompter-${d.getFullYear()}${p2(d.getMonth()+1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}.${ext}`,{type:type.split(';')[0]});
+  const url=URL.createObjectURL(blob);
+  const tv=$('#take'); if(tv.dataset.url) URL.revokeObjectURL(tv.dataset.url); tv.src=url; tv.dataset.url=url;
+  const a=$('#dl'); a.href=url; a.download=takeFile.name;
+  $('#saveSheet').hidden=false; $('#mainBar').hidden=true; $('#pane').hidden=true; $('#status').textContent='';
+}
+$('#saveTake').addEventListener('click',async()=>{
+  if(!takeFile) return;
+  try{
+    if(navigator.canShare&&navigator.canShare({files:[takeFile]})){ await navigator.share({files:[takeFile]}); return }
+  }catch(e){ if(e&&e.name==='AbortError') return }
+  $('#dl').hidden=false; $('#dl').click();
+});
+$('#retake').addEventListener('click',()=>{
+  $('#saveSheet').hidden=true; $('#mainBar').hidden=false; $('#pane').hidden=false;
+  try{$('#take').pause()}catch(e){}
+  offset=0; textEl.style.transform=tf();
+  setStatus(REC_HINT);
 });
 
 // test hook
