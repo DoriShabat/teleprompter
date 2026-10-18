@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Prompter">
+<meta name="theme-color" content="#000000">
+<title>Voice Prompter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;600;700;800&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.min.js"></script>
+<style>
+/* Layout: editor screen, then a full-black prompter with the text pinned right under the front camera */
+:root{
+  --ink:#000;
+  --panel:#120a1f;
+  --line:#2a1d3d;
+  --fg:#f4f1f8;
+  --muted:#8f84a3;
+  --accent:#e31d74;
+  --accent2:#6a1aaf;
+  --font:"Heebo",-apple-system,"SF Pro Text","Arial Hebrew",Arial,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;background:var(--ink);color:var(--fg);font-family:var(--font)}
+body{overscroll-behavior:none}
+[hidden]{display:none!important}
+button,select,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ---------- Editor ---------- */
+#editor{height:100%;display:flex;flex-direction:column;gap:14px;
+  padding-top:max(16px,env(safe-area-inset-top));padding-bottom:max(16px,env(safe-area-inset-bottom));
+  padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+#editor header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+#editor h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-.01em}
+#editor h1 b{color:var(--accent)}
+#script{flex:1;min-height:0;width:100%;resize:none;background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:16px;font-size:18px;line-height:1.6;unicode-bidi:plaintext}
+.settings{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.field{display:flex;flex-direction:column;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;min-width:0}
+.field label{font-size:13px;color:var(--muted)}
+.field select,.field input[type=range]{width:100%;background:transparent;border:0;font-size:16px}
+.field .row{display:flex;align-items:center;gap:8px}
+.field output{font-variant-numeric:tabular-nums;font-size:14px;min-width:3ch;text-align:center}
+.toggle{flex-direction:row;align-items:center;justify-content:space-between}
+.toggle input{width:22px;height:22px;accent-color:var(--accent)}
+.primary{background:var(--accent);border:0;border-radius:14px;padding:16px;font-size:19px;font-weight:800;color:#fff}
+.ghost{background:transparent;border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:14px;color:var(--muted)}
+.note{margin:0;font-size:13px;color:var(--muted);line-height:1.5}
+
+/* ---------- Prompter ---------- */
+#prompter{position:fixed;inset:0;background:var(--ink);display:flex;flex-direction:column}
+#pane{position:relative;overflow:hidden;flex:none;
+  padding-top:env(safe-area-inset-top);
+  -webkit-mask-image:linear-gradient(to bottom,#000 0,#000 78%,transparent 100%);
+          mask-image:linear-gradient(to bottom,#000 0,#000 78%,transparent 100%)}
+#text{position:relative;will-change:transform;transition:transform .45s cubic-bezier(.2,.7,.2,1);
+  padding-inline:var(--margin,22px);font-weight:600;line-height:1.35}
+#text.auto{transition:none}
+#text p{margin:0 0 .55em;unicode-bidi:plaintext}
+#text .w{color:var(--fg);transition:color .2s,opacity .2s;border-radius:6px}
+#text .w.done{opacity:.28}
+#text .w.cur{color:var(--accent)}
+#pane.mirror #text{transform-origin:center;}
+#cue{position:absolute;inset-inline-start:4px;width:6px;height:6px;border-radius:50%;background:var(--accent);pointer-events:none}
+
+#below{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:flex-end;gap:12px;
+  padding-bottom:max(16px,env(safe-area-inset-bottom));
+  padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+#heard{font-size:14px;color:var(--muted);min-height:1.5em;text-align:center;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;unicode-bidi:plaintext}
+#status{font-size:13px;color:var(--muted);text-align:center}
+#status.err{color:var(--accent)}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.round{width:52px;height:52px;border-radius:50%;background:var(--panel);border:1px solid var(--line);display:grid;place-items:center;font-size:20px;flex:none}
+.round svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+#go{width:76px;height:76px;border-radius:50%;border:0;background:var(--accent);color:#fff;display:grid;place-items:center;box-shadow:0 0 0 6px rgba(227,29,116,.18)}
+#go svg{width:30px;height:30px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+#go.live{background:var(--accent2);box-shadow:0 0 0 6px rgba(106,26,175,.25);animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 12px rgba(106,26,175,.12)}}
+@media (prefers-reduced-motion:reduce){#text{transition:none}#go.live{animation:none}}
+#floater{position:fixed;inset:0;background:var(--ink);overflow:auto}
+.fl-wrap{display:flex;flex-direction:column;gap:16px;
+  padding-top:max(16px,env(safe-area-inset-top));padding-bottom:max(16px,env(safe-area-inset-bottom));
+  padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+.fl-top{justify-content:flex-start}
+#flInfo{font-size:14px;color:var(--muted);font-variant-numeric:tabular-nums}
+#flProgress{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--muted)}
+.track{height:8px;background:var(--panel);border-radius:4px;overflow:hidden}
+.fill{height:100%;width:0;background:var(--accent);transition:width .2s}
+#flVideo{width:100%;border-radius:12px;background:#000;border:1px solid var(--line)}
+#flReady{display:flex;flex-direction:column;gap:14px}
+.rates{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+.rates button{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-size:15px;font-variant-numeric:tabular-nums}
+.rates button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.steps{margin:0;padding-inline-start:20px;display:flex;flex-direction:column;gap:8px;font-size:15px;line-height:1.5;color:var(--fg)}
+#speedRow{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+#speedRow input{flex:1;accent-color:var(--accent)}
+</style>
+</head>
+<body>
+
+<section id="editor">
+  <header>
+    <h1>Voice <b>Prompter</b></h1>
+    <button class="ghost" id="clear" type="button">ניקוי טקסט</button>
+  </header>
+  <textarea id="script" spellcheck="false" placeholder="הדבק כאן את הטקסט..."></textarea>
+  <div class="settings">
+    <div class="field">
+      <label for="mode">מצב גלילה</label>
+      <select id="mode">
+        <option value="voice">עוקב אחרי הקול</option>
+        <option value="float">חלון צף מעל המצלמה</option>
+        <option value="auto">גלילה במהירות קבועה</option>
+      </select>
+    </div>
+    <div class="field" data-for="voice">
+      <label for="lang">שפת הדיבור</label>
+      <select id="lang">
+        <option value="he-IL">עברית</option>
+        <option value="en-GB">English (UK)</option>
+        <option value="en-US">English (US)</option>
+      </select>
+    </div>
+    <div class="field" data-for="float">
+      <label for="wpm">קצב קריאה (מילים לדקה)</label>
+      <div class="row"><input type="range" id="wpm" min="80" max="220" step="5"><output id="wpmOut"></output></div>
+    </div>
+    <div class="field" data-for="float">
+      <label for="lines">שורות בחלון</label>
+      <div class="row"><input type="range" id="lines" min="2" max="5" step="1"><output id="linesOut"></output></div>
+    </div>
+    <div class="field" data-for="voice auto">
+      <label for="size">גודל טקסט</label>
+      <div class="row"><input type="range" id="size" min="22" max="72" step="2"><output id="sizeOut"></output></div>
+    </div>
+    <div class="field" data-for="voice auto">
+      <label for="height">גובה אזור הטקסט</label>
+      <div class="row"><input type="range" id="height" min="20" max="70" step="5"><output id="heightOut"></output></div>
+    </div>
+    <div class="field" data-for="voice auto">
+      <label for="margin">שוליים צדדיים</label>
+      <div class="row"><input type="range" id="margin" min="8" max="80" step="4"><output id="marginOut"></output></div>
+    </div>
+    <div class="field toggle">
+      <label for="mirror">היפוך מראה</label>
+      <input type="checkbox" id="mirror">
+    </div>
+  </div>
+  <button class="primary" id="start" type="button">פתח טלפרומפטר</button>
+  <p class="note" data-for="float">במצב חלון צף הטקסט הופך לסרטון גלילה בקצב שבחרת. מפעילים אותו כחלון "תמונה בתוך תמונה", גוררים אותו לראש המסך ליד המצלמה, ופותחים את אפליקציית המצלמה. בחלון אפשר לעצור, להמשיך ולקפוץ אחורה.</p>
+  <p class="note" data-for="voice auto">הטקסט מוצג צמוד לחלק העליון של המסך, ממש מתחת למצלמה הקדמית. במצב קול הוא מתקדם לפי המילים שאתה אומר, ואם תדלג או תאלתר הוא ימצא אותך כשתחזור לטקסט. נגיעה במילה מעבירה את נקודת הקריאה אליה.</p>
+</section>
+
+<section id="floater" hidden>
+  <div class="fl-wrap">
+    <div class="bar fl-top">
+      <button class="round" id="flBack" type="button" aria-label="חזרה לעריכה"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+      <span id="flInfo"></span>
+    </div>
+    <div id="flProgress"><div class="track"><div class="fill" id="flFill"></div></div><span id="flPct">מכין את הסרטון...</span></div>
+    <video id="flVideo" playsinline muted controls hidden></video>
+    <div id="flReady" hidden>
+      <div class="rates" role="group" aria-label="מהירות">
+        <button type="button" data-rate="0.8">0.8x</button>
+        <button type="button" data-rate="0.9">0.9x</button>
+        <button type="button" data-rate="1" class="on">1x</button>
+        <button type="button" data-rate="1.1">1.1x</button>
+        <button type="button" data-rate="1.25">1.25x</button>
+      </div>
+      <button class="primary" id="flPip" type="button">הצף מעל המצלמה</button>
+      <ol class="steps">
+        <li>לחץ על "הצף מעל המצלמה". הסרטון יתחיל ויקפוץ לחלון צף.</li>
+        <li>גרור את החלון לראש המסך, ליד המצלמה, והגדל אותו בצביטה.</li>
+        <li>פתח את אפליקציית המצלמה. עצור את החלון והפעל אותו שוב ברגע שאתה מתחיל להקליט.</li>
+      </ol>
+      <p class="note" id="flErr"></p>
+    </div>
+  </div>
+</section>
+
+<section id="prompter" hidden>
+  <div id="pane"><div id="text"></div></div>
+  <div id="below">
+    <div id="heard"></div>
+    <div id="status"></div>
+    <div id="speedRow" hidden>
+      <span>מהירות</span><input type="range" id="speed" min="10" max="160" step="5" aria-label="מהירות גלילה">
+    </div>
+    <div class="bar">
+      <button class="round" id="back" type="button" aria-label="חזרה לעריכה"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+      <button class="round" id="smaller" type="button" aria-label="הקטן טקסט">א-</button>
+      <button id="go" type="button" aria-label="התחל"><svg viewBox="0 0 24 24" id="goIcon"></svg></button>
+      <button class="round" id="bigger" type="button" aria-label="הגדל טקסט">א+</button>
+      <button class="round" id="reset" type="button" aria-label="חזרה להתחלה"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2"/><path d="M4 4v4h4"/></svg></button>
+    </div>
+  </div>
+</section>
+
+<script>
+(function(){
+const $ = s => document.querySelector(s);
+const SAMPLE = `היי, אני דורי מ CallMarker.
+זה טלפרומפטר שעוקב אחרי הקול שלי. כשאני מדבר, הטקסט מתקדם לבד, בדיוק בקצב שלי.
+אם אני עוצר לנשום, הוא מחכה. אם אני מאלתר משפט, הוא מוצא אותי שוב כשאני חוזר לתסריט.
+והכי חשוב, הטקסט יושב ממש מתחת למצלמה, אז העיניים שלי נשארות על העדשה.`;
+
+const store = {
+  get(k,d){try{const v=localStorage.getItem('vp_'+k);return v===null?d:JSON.parse(v)}catch(e){return d}},
+  set(k,v){try{localStorage.setItem('vp_'+k,JSON.stringify(v))}catch(e){}}
+};
+
+const S = {
+  script: store.get('script', SAMPLE),
+  mode: store.get('mode','float'),
+  lang: store.get('lang','he-IL'),
+  size: store.get('size',38),
+  height: store.get('height',40),
+  margin: store.get('margin',22),
+  mirror: store.get('mirror',false),
+  speed: store.get('speed',45),
+  wpm: store.get('wpm',140),
+  lines: store.get('lines',3)
+};
+
+// ---------- Editor wiring ----------
+const ta=$('#script'), modeEl=$('#mode'), langEl=$('#lang'), sizeEl=$('#size'), heightEl=$('#height'), marginEl=$('#margin'), mirrorEl=$('#mirror'), speedEl=$('#speed');
+ta.value=S.script; modeEl.value=S.mode; langEl.value=S.lang; sizeEl.value=S.size; heightEl.value=S.height; marginEl.value=S.margin; mirrorEl.checked=S.mirror; speedEl.value=S.speed;
+const wpmEl=$('#wpm'), linesEl=$('#lines'); wpmEl.value=S.wpm; linesEl.value=S.lines;
+const outs=()=>{$('#wpmOut').textContent=wpmEl.value;$('#linesOut').textContent=linesEl.value;$('#sizeOut').textContent=sizeEl.value;$('#heightOut').textContent=heightEl.value+'%';$('#marginOut').textContent=marginEl.value};
+outs();
+ta.addEventListener('input',()=>{S.script=ta.value;store.set('script',S.script)});
+[[modeEl,'mode'],[langEl,'lang']].forEach(([el,k])=>el.addEventListener('change',()=>{S[k]=el.value;store.set(k,S[k]);showFields()}));
+function showFields(){document.querySelectorAll('[data-for]').forEach(el=>{el.hidden=!el.dataset.for.split(' ').includes(S.mode)})}
+showFields();
+[[wpmEl,'wpm'],[linesEl,'lines'],[sizeEl,'size'],[heightEl,'height'],[marginEl,'margin'],[speedEl,'speed']].forEach(([el,k])=>el.addEventListener('input',()=>{S[k]=+el.value;store.set(k,S[k]);outs();applyLayout()}));
+mirrorEl.addEventListener('change',()=>{S.mirror=mirrorEl.checked;store.set('mirror',S.mirror)});
+$('#clear').addEventListener('click',()=>{ta.value='';S.script='';store.set('script','');ta.focus()});
+
+// ---------- Text model ----------
+const textEl=$('#text'), pane=$('#pane');
+let words=[];      // {el, norm}
+let M=[];          // indices into words that are matchable
+let pos=0;         // index into M of the next word to be said
+let offset=0;      // current translateY (positive = scrolled up)
+
+const norm = w => w.toLowerCase()
+  .replace(/[֑-ׇ]/g,'')
+  .replace(/[״׳"'`’‘]/g,'')
+  .replace(/[^\p{L}\p{N}]+/gu,'');
+
+function build(){
+  textEl.innerHTML=''; words=[]; M=[];
+  const paras=S.script.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  paras.forEach(p=>{
+    const pe=document.createElement('p'); pe.dir='auto';
+    p.split(/\s+/).forEach((w,i,arr)=>{
+      const sp=document.createElement('span'); sp.className='w'; sp.textContent=w;
+      const n=norm(w); const idx=words.length;
+      sp.dataset.i=idx; words.push({el:sp,norm:n});
+      if(n) M.push(idx);
+      pe.appendChild(sp);
+      if(i<arr.length-1) pe.appendChild(document.createTextNode(' '));
+    });
+    textEl.appendChild(pe);
+  });
+  pos=0; offset=0;
+}
+
+function applyLayout(){
+  textEl.style.fontSize=S.size+'px';
+  textEl.style.setProperty('--margin',S.margin+'px');
+  pane.style.height=`calc(${S.height}vh + env(safe-area-inset-top))`;
+  textEl.style.transform=tf();
+}
+const tf=()=>`translateY(${-offset}px)`+(S.mirror?' scaleX(-1)':'');
+
+// Keep the current word on the first reading line, right under the camera
+function render(){
+  const curWord = pos<M.length ? M[pos] : words.length;
+  for(let i=0;i<words.length;i++){
+    const c=words[i].el.classList;
+    c.toggle('done',i<curWord); c.toggle('cur',i===curWord);
+  }
+  const target = pos<M.length ? words[M[pos]].el : (words.length?words[words.length-1].el:null);
+  if(target){
+    const lineH=S.size*1.35;
+    offset=Math.max(0,target.offsetTop-lineH*0.6);
+  } else offset=0;
+  textEl.style.transform=tf();
+}
+
+// ---------- Fuzzy matching ----------
+function lev(a,b){
+  if(Math.abs(a.length-b.length)>2) return 9;
+  const d=Array(b.length+1).fill(0).map((_,i)=>i);
+  for(let i=1;i<=a.length;i++){
+    let prev=d[0]; d[0]=i;
+    for(let j=1;j<=b.length;j++){
+      const t=d[j];
+      d[j]=Math.min(d[j]+1,d[j-1]+1,prev+(a[i-1]===b[j-1]?0:1));
+      prev=t;
+    }
+  }
+  return d[b.length];
+}
+function eq(a,b){
+  if(a===b) return true;
+  const L=Math.min(a.length,b.length);
+  if(L<3) return false;
+  if(a.startsWith(b)||b.startsWith(a)) return true;
+  // Hebrew prefixes (ו ה ב ל מ ש כ) often get split or merged by the recognizer
+  const strip=s=>s.replace(/^[והבלמשכ]{1,2}(?=.{3,})/,'');
+  if(strip(a)===strip(b)) return true;
+  return lev(a,b) <= (Math.max(a.length,b.length)>=6?2:1);
+}
+const mw = i => words[M[i]].norm;
+
+// Score how well the spoken tail lines up with the script ending at c
+function score(tail,c){
+  let i=tail.length-1, j=c, s=0, guard=0;
+  while(i>=0 && j>=0 && j>c-14 && guard++<40){
+    if(eq(tail[i],mw(j))){s++;i--;j--;}
+    else if(i>0 && eq(tail[i-1],mw(j))) i--;
+    else if(j>0 && eq(tail[i],mw(j-1))) j--;
+    else {i--;j--;}
+  }
+  return s;
+}
+function locate(tail){
+  if(!tail.length||!M.length) return;
+  const last=tail[tail.length-1];
+  let best=-1,bestS=0,bestD=1e9;
+  const lo=Math.max(0,pos-6), hi=Math.min(M.length-1,pos+45);
+  for(let c=lo;c<=hi;c++){
+    if(!eq(last,mw(c))) continue;
+    const s=score(tail,c), d=c-pos;
+    let need = (d>=-1&&d<=3)?1 : (d>3&&d<=15)?2 : 3;
+    if(last.length<=2 && need<2) need=2;
+    if(s<need) continue;
+    const dist=Math.abs(d+0.5);
+    if(s>bestS || (s===bestS && dist<bestD)){best=c;bestS=s;bestD=dist}
+  }
+  if(best>=0 && best+1!==pos){pos=best+1;render()}
+}
+
+// ---------- Speech recognition ----------
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let rec=null, running=false, lastTail='';
+function setStatus(t,err){const s=$('#status');s.textContent=t;s.classList.toggle('err',!!err)}
+
+function startVoice(){
+  if(!SR){setStatus('הדפדפן לא תומך בזיהוי דיבור. פתח את הדף ב Safari, או עבור לגלילה במהירות קבועה.',true);return false}
+  rec=new SR();
+  rec.lang=S.lang; rec.continuous=true; rec.interimResults=true; rec.maxAlternatives=1;
+  rec.onresult=e=>{
+    let t='';
+    for(let i=0;i<e.results.length;i++) t+=' '+e.results[i][0].transcript;
+    const all=t.trim().split(/\s+/);
+    $('#heard').textContent=all.slice(-8).join(' ');
+    const tail=all.map(norm).filter(Boolean).slice(-6);
+    const key=tail.join(' ');
+    if(key!==lastTail){lastTail=key;locate(tail)}
+  };
+  rec.onerror=e=>{
+    if(e.error==='not-allowed'||e.error==='service-not-allowed'){
+      running=false;updateGo();
+      setStatus('אין גישה למיקרופון. אשר גישה בהגדרות Safari לאתר הזה ונסה שוב.',true);
+    } else if(e.error!=='no-speech'&&e.error!=='aborted'){
+      setStatus('שגיאת זיהוי: '+e.error+'. מנסה שוב...',true);
+    }
+  };
+  rec.onend=()=>{ if(running){ lastTail=''; setTimeout(()=>{ if(running) try{rec.start()}catch(e){} },150) } };
+  try{rec.start()}catch(e){}
+  setStatus('מקשיב. התחל לדבר.');
+  return true;
+}
+function stopVoice(){ if(rec){ try{rec.onend=null;rec.abort()}catch(e){} rec=null } }
+
+// ---------- Auto scroll ----------
+let raf=0,lastT=0;
+function autoLoop(t){
+  if(!running) return;
+  if(lastT) offset+=S.speed*(t-lastT)/1000;
+  lastT=t;
+  const max=textEl.scrollHeight;
+  if(offset>max){offset=max;}
+  textEl.style.transform=tf();
+  raf=requestAnimationFrame(autoLoop);
+}
+
+// ---------- Wake lock ----------
+let lock=null;
+async function keepAwake(){try{if('wakeLock' in navigator) lock=await navigator.wakeLock.request('screen')}catch(e){}}
+function release(){try{lock&&lock.release()}catch(e){} lock=null}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&running) keepAwake()});
+
+// ---------- Prompter controls ----------
+const ICON_PLAY='<path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/>';
+const ICON_AUTO='<path d="M8 5l11 7-11 7z"/>';
+const ICON_STOP='<rect x="6" y="6" width="12" height="12" rx="2"/>';
+function updateGo(){
+  $('#go').classList.toggle('live',running);
+  $('#goIcon').innerHTML = running?ICON_STOP:(S.mode==='voice'?ICON_PLAY:ICON_AUTO);
+  $('#go').setAttribute('aria-label',running?'עצור':'התחל');
+}
+function toggleRun(){
+  if(running){
+    running=false; stopVoice(); cancelAnimationFrame(raf); release();
+    setStatus('מושהה. לחץ כדי להמשיך.');
+  } else {
+    running=true; keepAwake();
+    if(S.mode==='voice'){ if(!startVoice()) running=false }
+    else { textEl.classList.add('auto'); lastT=0; raf=requestAnimationFrame(autoLoop); setStatus('') }
+  }
+  updateGo();
+}
+
+$('#start').addEventListener('click',()=>{
+  if(S.mode==='float'){openFloat();return}
+  build(); applyLayout();
+  $('#editor').hidden=true; $('#prompter').hidden=false;
+  textEl.classList.toggle('auto',S.mode==='auto');
+  $('#speedRow').hidden=S.mode!=='auto';
+  $('#heard').textContent='';
+  setStatus(S.mode==='voice'?'לחץ על המיקרופון והתחל לדבר.':'לחץ על הפליי כדי להתחיל לגלול.');
+  running=false; updateGo();
+  requestAnimationFrame(render);
+});
+$('#back').addEventListener('click',()=>{
+  if(running) toggleRun();
+  $('#prompter').hidden=true; $('#editor').hidden=false;
+});
+$('#go').addEventListener('click',toggleRun);
+$('#reset').addEventListener('click',()=>{pos=0;offset=0;lastTail='';render()});
+function resize(d){S.size=Math.max(22,Math.min(72,S.size+d));store.set('size',S.size);sizeEl.value=S.size;outs();applyLayout();if(S.mode==='voice')render()}
+$('#smaller').addEventListener('click',()=>resize(-2));
+$('#bigger').addEventListener('click',()=>resize(2));
+speedEl.addEventListener('input',()=>{});
+
+// Tap a word to move the reading point there
+textEl.addEventListener('click',e=>{
+  const w=e.target.closest('.w'); if(!w) return;
+  const i=+w.dataset.i;
+  let k=M.findIndex(m=>m>=i); if(k<0) k=M.length;
+  pos=k; lastTail='';
+  if(S.mode==='auto'){ offset=Math.max(0,w.offsetTop-S.size*1.35*0.6); textEl.style.transform=tf() }
+  else render();
+});
+
+// Drag to nudge the text in auto mode
+let dragY=null;
+pane.addEventListener('touchstart',e=>{if(S.mode==='auto')dragY=e.touches[0].clientY},{passive:true});
+pane.addEventListener('touchmove',e=>{if(dragY!==null){const y=e.touches[0].clientY;offset=Math.max(0,offset-(y-dragY));dragY=y;textEl.style.transform=tf()}},{passive:true});
+pane.addEventListener('touchend',()=>{dragY=null});
+
+window.addEventListener('resize',()=>{if(!$('#prompter').hidden){applyLayout();if(S.mode==='voice')render()}});
+
+// ---------- Floating window (Picture in Picture video) ----------
+const VW=1280, VH=720, FPS=30;
+let flUrl=null, flJob=0;
+const isRTL=s=>/[֐-׿]/.test(s);
+
+function layoutLines(ctx,font,maxW){
+  ctx.font=font;
+  const out=[]; // {text,rtl,words,gapBefore}
+  S.script.split(/\n+/).map(s=>s.trim()).filter(Boolean).forEach((p,pi)=>{
+    const rtl=isRTL(p); let line=[]; let first=true;
+    const push=()=>{ if(line.length){out.push({text:line.join(' '),rtl,words:line.length,gap:first&&pi>0}); first=false; line=[]} };
+    p.split(/\s+/).forEach(w=>{
+      const t=line.concat(w).join(' ');
+      if(line.length && ctx.measureText(t).width>maxW) push();
+      line.push(w);
+    });
+    push();
+  });
+  return out;
+}
+
+function makeScene(ctx){
+  const lineH=VH/(S.lines+0.5), size=Math.round(lineH/1.28), margin=56;
+  const font=`700 ${size}px Heebo, "Arial Hebrew", Arial, sans-serif`;
+  const lines=layoutLines(ctx,font,VW-margin*2);
+  let y=0; const ys=[];
+  lines.forEach(l=>{ if(l.gap) y+=lineH*0.45; ys.push(y); y+=lineH; });
+  // time each line by its share of words so dense lines get more time
+  const lead=2, tail=3, secPerWord=60/S.wpm;
+  let t=lead; const ts=lines.map(l=>{const s=t; t+=l.words*secPerWord; return s});
+  const total=t+tail;
+  const readY=lineH*0.18; // the line being read sits at the top of the window
+  const scrollAt=time=>{
+    if(!lines.length) return 0;
+    if(time<=ts[0]) return ys[0];
+    for(let i=0;i<lines.length;i++){
+      const end = i+1<lines.length ? ts[i+1] : ts[i]+lines[i].words*secPerWord;
+      if(time<end){ const next = i+1<lines.length ? ys[i+1] : ys[i]+lineH; return ys[i]+(next-ys[i])*(time-ts[i])/(end-ts[i]) }
+    }
+    return ys[lines.length-1]+lineH;
+  };
+  const draw=time=>{
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.fillStyle='#000'; ctx.fillRect(0,0,VW,VH);
+    if(S.mirror) ctx.setTransform(-1,0,0,1,VW,0);
+    ctx.font=font; ctx.textBaseline='top';
+    const off=scrollAt(time)-readY;
+    lines.forEach((l,i)=>{
+      const y=ys[i]-off;
+      if(y<-lineH||y>VH) return;
+      const passed = y < readY - lineH*0.5;
+      ctx.globalAlpha = passed ? 0.3 : (y>VH-lineH*1.2 ? 0.55 : 1);
+      ctx.fillStyle = '#f4f1f8';
+      ctx.direction = l.rtl?'rtl':'ltr';
+      ctx.textAlign = l.rtl?'right':'left';
+      ctx.fillText(l.text, l.rtl?VW-margin:margin, y);
+    });
+    ctx.globalAlpha=1;
+    ctx.fillStyle='#e31d74';
+    ctx.fillRect(S.mirror?VW-14:6, readY+lineH*0.18, 8, lineH*0.62);
+  };
+  return {draw,total};
+}
+
+async function renderWithEncoder(canvas,ctx,scene,onP,job){
+  const cfgs=['avc1.4d0028','avc1.42002a','avc1.42001f'].map(codec=>({codec,width:VW,height:VH,bitrate:2_500_000,framerate:FPS}));
+  let cfg=null;
+  for(const c of cfgs){ try{ if((await VideoEncoder.isConfigSupported(c)).supported){cfg=c;break} }catch(e){} }
+  if(!cfg) throw new Error('no-codec');
+  const muxer=new Mp4Muxer.Muxer({target:new Mp4Muxer.ArrayBufferTarget(),video:{codec:'avc',width:VW,height:VH,frameRate:FPS},fastStart:'in-memory'});
+  let err=null;
+  const enc=new VideoEncoder({output:(ch,meta)=>muxer.addVideoChunk(ch,meta),error:e=>{err=e}});
+  enc.configure(cfg);
+  const N=Math.ceil(scene.total*FPS);
+  for(let f=0;f<N;f++){
+    if(job!==flJob){enc.close();return null}
+    if(err) throw err;
+    scene.draw(f/FPS);
+    const fr=new VideoFrame(canvas,{timestamp:Math.round(f*1e6/FPS),duration:Math.round(1e6/FPS)});
+    enc.encode(fr,{keyFrame:f%(FPS*2)===0}); fr.close();
+    while(enc.encodeQueueSize>8) await new Promise(r=>setTimeout(r,4));
+    if(f%10===0){onP(f/N); await new Promise(r=>setTimeout(r,0))}
+  }
+  await enc.flush(); enc.close(); muxer.finalize();
+  return new Blob([muxer.target.buffer],{type:'video/mp4'});
+}
+
+async function renderRealtime(canvas,scene,onP,job){
+  const type=['video/mp4','video/webm'].find(t=>window.MediaRecorder&&MediaRecorder.isTypeSupported(t));
+  if(!type) throw new Error('no-recorder');
+  const stream=canvas.captureStream(FPS), rec=new MediaRecorder(stream,{mimeType:type,videoBitsPerSecond:2_500_000});
+  const chunks=[]; rec.ondataavailable=e=>e.data.size&&chunks.push(e.data);
+  const done=new Promise(r=>rec.onstop=r);
+  rec.start(1000); const t0=performance.now();
+  await new Promise(res=>{
+    const tick=()=>{
+      if(job!==flJob){rec.stop();return res()}
+      const t=(performance.now()-t0)/1000; scene.draw(t); onP(t/scene.total);
+      if(t>=scene.total){rec.stop();return res()}
+      requestAnimationFrame(tick);
+    }; tick();
+  });
+  await done;
+  return job===flJob ? new Blob(chunks,{type}) : null;
+}
+
+async function openFloat(){
+  const job=++flJob;
+  $('#editor').hidden=true; $('#floater').hidden=false;
+  $('#flProgress').hidden=false; $('#flReady').hidden=true; $('#flVideo').hidden=true; $('#flErr').textContent='';
+  const fill=$('#flFill'), pct=$('#flPct');
+  const onP=p=>{fill.style.width=Math.min(100,p*100).toFixed(0)+'%';pct.textContent='מכין את הסרטון... '+Math.min(100,Math.round(p*100))+'%'};
+  onP(0);
+  try{ await document.fonts.load('700 100px Heebo') }catch(e){}
+  const canvas=document.createElement('canvas'); canvas.width=VW; canvas.height=VH;
+  const ctx=canvas.getContext('2d');
+  const scene=makeScene(ctx);
+  const mins=Math.floor(scene.total/60), secs=Math.round(scene.total%60);
+  $('#flInfo').textContent=`${S.wpm} מילים לדקה · ${mins}:${String(secs).padStart(2,'0')} דקות`;
+  let blob=null;
+  try{
+    blob = ('VideoEncoder' in window && window.Mp4Muxer) ? await renderWithEncoder(canvas,ctx,scene,onP,job) : null;
+  }catch(e){ blob=null }
+  try{
+    if(!blob && job===flJob){ pct.textContent='מכין את הסרטון בזמן אמת...'; blob=await renderRealtime(canvas,scene,onP,job) }
+  }catch(e){ pct.textContent='הדפדפן לא הצליח לייצר סרטון. נסה ב Safari מעודכן.'; return }
+  if(!blob||job!==flJob) return;
+  if(flUrl) URL.revokeObjectURL(flUrl);
+  flUrl=URL.createObjectURL(blob);
+  const v=$('#flVideo'); v.src=flUrl; v.playbackRate=1; v.defaultPlaybackRate=1;
+  document.querySelectorAll('.rates button').forEach(b=>b.classList.toggle('on',b.dataset.rate==='1'));
+  $('#flProgress').hidden=true; v.hidden=false; $('#flReady').hidden=false;
+}
+
+document.querySelectorAll('.rates button').forEach(b=>b.addEventListener('click',()=>{
+  const v=$('#flVideo'), r=+b.dataset.rate; v.playbackRate=r; v.defaultPlaybackRate=r;
+  document.querySelectorAll('.rates button').forEach(x=>x.classList.toggle('on',x===b));
+}));
+
+$('#flPip').addEventListener('click',async()=>{
+  const v=$('#flVideo'); $('#flErr').textContent='';
+  try{ v.currentTime=0; await v.play() }catch(e){}
+  try{
+    if(document.pictureInPictureEnabled && v.requestPictureInPicture) await v.requestPictureInPicture();
+    else if(v.webkitSupportsPresentationMode && v.webkitSupportsPresentationMode('picture-in-picture')) v.webkitSetPresentationMode('picture-in-picture');
+    else throw new Error('pip');
+  }catch(e){
+    $('#flErr').textContent='החלון הצף לא נפתח. אפשר להפעיל את הסרטון במסך מלא ולהחליק הביתה, או ללחוץ על כפתור החלון הצף בנגן.';
+  }
+});
+
+$('#flBack').addEventListener('click',()=>{
+  flJob++; const v=$('#flVideo'); try{v.pause()}catch(e){}
+  try{ if(document.pictureInPictureElement) document.exitPictureInPicture() }catch(e){}
+  $('#floater').hidden=true; $('#editor').hidden=false;
+});
+
+// test hook
+window.__vp={build,locate:t=>locate(t.map(norm)),get pos(){return pos},set script(v){S.script=v},norm};
+})();
+</script>
+</body>
+</html>
